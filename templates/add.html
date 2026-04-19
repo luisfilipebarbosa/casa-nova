@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="section-title">Nova entrada</div>
+
+<div class="form-card">
+  <form method="POST" action="/add">
+
+    <div class="form-grid">
+      <div class="form-row">
+        <label for="date">Data</label>
+        <input type="date" id="date" name="date" value="{{ today }}" required>
+      </div>
+      <div class="form-row">
+        <label for="amount">Valor (€)</label>
+        <input type="number" id="amount" name="amount" step="0.01" min="0.01"
+               placeholder="0.00" required inputmode="decimal">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="desc">Descrição</label>
+      <input type="text" id="desc" name="desc" placeholder="ex: materiais pladur" required>
+    </div>
+
+    <div class="form-row">
+      <label for="payee">Pago a</label>
+      <input type="text" id="payee" name="payee" placeholder="ex: Xptobra">
+    </div>
+
+    <div class="form-row">
+      <label for="tag">Categoria (Tag)</label>
+      <select id="tag" name="tag">
+        <option value="" selected>Escolhe uma categoria</option>
+        {% for t in tags %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="newtag" placeholder="ou nova categoria…"
+             style="margin-top:0.4rem; font-size:0.85rem">
+    </div>
+
+    <div class="form-row">
+      <label>Conta</label>
+      <div class="conta-toggle">
+        <label>
+          <input type="radio" name="conta" value="Cash" checked>
+          <span>💵 Cash</span>
+        </label>
+        <label>
+          <input type="radio" name="conta" value="Banco">
+          <span>🏦 Banco</span>
+        </label>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Guardar e sincronizar YNAB</button>
+  </form>
+</div>
+
+{% endblock %}

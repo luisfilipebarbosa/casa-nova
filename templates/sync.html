@@ -1,0 +1,120 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="section-title">Sincronizar banco (YNAB)</div>
+
+{% if not txns %}
+<div class="card" style="text-align:center; padding: 2.5rem;">
+  <div style="font-size: 2rem; margin-bottom: 0.75rem;">✓</div>
+  <div style="font-weight: 700; margin-bottom: 0.35rem;">Tudo sincronizado</div>
+  <div class="text-muted" style="font-size:0.875rem">Não há novas transações no YNAB por importar.</div>
+  <a href="/" class="btn btn-ghost" style="margin-top:1.25rem; display:inline-flex">← Voltar</a>
+</div>
+
+{% else %}
+<p class="text-muted" style="font-size:0.825rem; margin-bottom:0.75rem">
+  {{ txns|length }} transação(ões) do YNAB sem correspondência na folha.
+  Para cada uma: <strong>Importar</strong> cria uma nova linha, <strong>Ligar</strong>
+  escreve o YNAB ID numa linha já existente, <strong>Ignorar</strong> não faz nada.
+</p>
+
+<div style="display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap">
+  <button type="button" class="btn btn-ghost btn-sm" onclick="setAll('import')">Importar todas</button>
+  <button type="button" class="btn btn-ghost btn-sm" onclick="setAll('ignore')">Ignorar todas</button>
+</div>
+
+<form method="POST" action="/sync/confirm" id="sync-form">
+  <input type="hidden" name="txns_json" value="{{ txns_json | e }}">
+
+  {% for t in txns %}
+  {% set amount = (t.amount | abs) / 1000 %}
+  <div class="txn-card" data-tid="{{ t.id }}">
+    <div class="txn-head">
+      <div class="txn-title">
+        <div class="sensitive" style="font-weight:600; font-size:0.9rem">{{ t.payee_name or '—' }}</div>
+        <div class="txn-meta">
+          {{ t.date }}
+          · {{ 'Cash' if t.account_id == '696f7b16-febb-4f9b-93e0-301a591c297e' else 'Banco' }}
+          {% if t.memo and t.memo != t.payee_name %}· <span class="sensitive">{{ t.memo[:50] }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="txn-amount">€{{ "{:,.2f}".format(amount) }}</div>
+    </div>
+
+    <div class="act-row">
+      <label class="act-opt">
+        <input type="radio" name="act_{{ t.id }}" value="import" checked
+               onchange="toggleSub(this)">
+        <span>Importar</span>
+      </label>
+      <label class="act-opt">
+        <input type="radio" name="act_{{ t.id }}" value="link"
+               onchange="toggleSub(this)">
+        <span>Ligar a existente</span>
+      </label>
+      <label class="act-opt">
+        <input type="radio" name="act_{{ t.id }}" value="ignore"
+               onchange="toggleSub(this)">
+        <span>Ignorar</span>
+      </label>
+    </div>
+
+    <div class="sub sub-import">
+      <div class="sub-grid">
+        <select name="tag_{{ t.id }}">
+          <option value="">— categoria —</option>
+          {% for tag in tags %}
+          <option value="{{ tag }}">{{ tag }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="newtag_{{ t.id }}" placeholder="ou nova categoria…">
+      </div>
+    </div>
+
+    <div class="sub sub-link" style="display:none">
+      <input type="text" class="link-filter" data-target="link_{{ t.id }}"
+             placeholder="🔍 Filtrar por data, payee, descrição, tag, valor…"
+             oninput="filterOpts(this)">
+      <select name="link_{{ t.id }}" style="margin-top:0.4rem">
+        <option value="">— escolhe uma linha existente —</option>
+        {% for u in all_rows %}
+        <option value="{{ u.rownum }}">{{ u.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div style="display:flex; gap:0.75rem; margin-top:1.25rem; flex-wrap:wrap">
+    <button type="submit" class="btn btn-green">Confirmar</button>
+    <a href="/" class="btn btn-ghost">Cancelar</a>
+  </div>
+</form>
+
+<script>
+function toggleSub(radio) {
+  const card = radio.closest('.txn-card');
+  const val  = card.querySelector('input[type=radio]:checked').value;
+  card.querySelector('.sub-import').style.display = val === 'import' ? '' : 'none';
+  card.querySelector('.sub-link').style.display   = val === 'link'   ? '' : 'none';
+}
+function setAll(val) {
+  document.querySelectorAll('.txn-card').forEach(card => {
+    const r = card.querySelector(`input[type=radio][value="${val}"]`);
+    if (r) { r.checked = true; toggleSub(r); }
+  });
+}
+function filterOpts(input) {
+  const sel = document.querySelector(`select[name="${input.dataset.target}"]`);
+  const q   = input.value.toLowerCase().trim();
+  Array.from(sel.options).forEach(opt => {
+    if (!opt.value) return;
+    const match = !q || opt.text.toLowerCase().includes(q);
+    opt.hidden = !match;
+    opt.disabled = !match;
+  });
+}
+</script>
+{% endif %}
+
+{% endblock %}

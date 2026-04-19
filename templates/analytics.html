@@ -1,0 +1,237 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<!-- KPI strip -->
+<div class="kpi-grid">
+  <div class="kpi blue">
+    <div class="kpi-label">Total gasto</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(total) }}</div>
+    <div class="kpi-sub">{{ "{:.0%}".format(pct) }} do orçamento c/IVA</div>
+  </div>
+  <div class="kpi {{ 'orange' if projected > budget_civa else 'green' }}">
+    <div class="kpi-label">Custo projectado</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(projected) }}</div>
+    <div class="kpi-sub">s/IVA: €{{ "{:,.0f}".format(projected_siva) }}</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-label">Liquidez actual</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(available) }}</div>
+    <div class="kpi-sub">Banco + Cash (YNAB)</div>
+  </div>
+  <div class="kpi orange">
+    <div class="kpi-label">Falta pagar</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(remaining_to_pay) }}</div>
+    <div class="kpi-sub">orçamento c/IVA − gasto</div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="chart-grid">
+  <div class="chart-wrap">
+    <div class="chart-label">Gastos mensais</div>
+    <canvas id="monthlyChart"></canvas>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-label">Gastos por categoria</div>
+    <div style="position:relative; height:420px">
+      <canvas id="spentChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- Per-category progress -->
+<div class="section-title">Progresso por categoria</div>
+<div class="card" style="margin-bottom:1.25rem">
+  {% for c in categories %}
+  <div class="phase-row">
+    <div class="phase-header">
+      <span class="phase-name">{{ c.name }}</span>
+      <span class="phase-vals">
+        €{{ "{:,.0f}".format(c.spent) }} / €{{ "{:,.0f}".format(c.budget) }}
+      </span>
+    </div>
+    <div class="progress">
+      {% set pct = c.pct %}
+      {% set cls = 'fill-red' if pct > 1 else ('fill-orange' if pct >= 0.95 else ('fill-green' if pct > 0 else 'fill-blue')) %}
+      <div class="progress-fill {{ cls }}" style="width:{{ [pct * 100, 100]|min }}%"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="divider"></div>
+
+<!-- Budget vs actual -->
+<div class="section-title">Orçamento vs real — por categoria</div>
+<div class="card table-wrap" style="padding:0; margin-bottom:1.25rem">
+  <table>
+    <thead>
+      <tr>
+        <th>Categoria</th>
+        <th class="num">Orçamento s/IVA</th>
+        <th class="num">Orçamento c/IVA</th>
+        <th class="num">Pago</th>
+        <th class="num">A pagar</th>
+        <th class="num">% Exec.</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table %}
+      <tr>
+        <td class="fw7">{{ row.tag }}</td>
+        <td class="num muted eur">{% if row.budget_siva %}€{{ "{:,.0f}".format(row.budget_siva) }}{% else %}—{% endif %}</td>
+        <td class="num eur">{% if row.budget_civa %}€{{ "{:,.0f}".format(row.budget_civa) }}{% else %}—{% endif %}</td>
+        <td class="num eur text-blue">€{{ "{:,.2f}".format(row.actual) }}</td>
+        <td class="num eur text-green">{% if row.remaining %}€{{ "{:,.0f}".format(row.remaining) }}{% else %}—{% endif %}</td>
+        <td class="num">
+          {% if row.budget_civa %}
+            <span class="{{ 'text-red' if row.pct > 1 else ('text-orange' if row.pct >= 0.95 else 'text-green') }}">
+              {{ "{:.0%}".format(row.pct) }}
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="status-cell">
+          <span class="badge badge-{{ row.status_cls }}">{{ row.status }}</span>
+          {% if row.has_budget and row.actual > 0 %}
+          <form method="POST" action="/category/toggle" style="display:inline">
+            <input type="hidden" name="tag" value="{{ row.tag }}">
+            <button type="submit" class="badge-btn"
+                    title="{{ 'Reabrir (marcar como em curso)' if row.closed else 'Fechar (marcar como concluída)' }}">
+              {{ '↺' if row.closed else '✓' }}
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="divider"></div>
+
+<!-- Recent entries -->
+<div class="section-title">Últimas entradas</div>
+<div class="card table-wrap" style="padding:0">
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Descrição</th>
+        <th>Pago a</th>
+        <th>Tag</th>
+        <th>Conta</th>
+        <th class="num">Valor</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td class="muted" style="white-space:nowrap">{{ r.date.strftime('%d/%m/%Y') if r.date }}</td>
+        <td class="sensitive">{{ r.desc[:50] }}</td>
+        <td class="muted sensitive">{{ r.payee[:25] }}</td>
+        <td><span class="badge badge-blue">{{ r.tag or '—' }}</span></td>
+        <td>
+          <span class="badge {{ 'badge-green' if r.conta == 'Cash' else 'badge-blue' }}">
+            {{ r.conta or '—' }}
+          </span>
+        </td>
+        <td class="num fw7 eur text-blue">€{{ "{:,.2f}".format(r.amount) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const BLUE   = '#b8a4ff';
+const GREEN  = '#6fc786';
+const ORANGE = '#d4a84b';
+const MUTED  = '#1e2028';
+
+Chart.defaults.color = '#7a7d85';
+Chart.defaults.borderColor = '#16181f';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.font.size = 11;
+
+// Monthly spend + cumulative
+const mLabels = {{ monthly_labels|safe }};
+const mValues = {{ monthly_values|safe }};
+const mCumul  = {{ monthly_cumulative|safe }};
+
+new Chart(document.getElementById('monthlyChart'), {
+  data: {
+    labels: mLabels,
+    datasets: [
+      { type: 'bar',  label: 'Mensal',     data: mValues, backgroundColor: BLUE + '55',
+        borderColor: BLUE, borderWidth: 1, yAxisID: 'y' },
+      { type: 'line', label: 'Acumulado',  data: mCumul,  borderColor: GREEN,
+        borderWidth: 2, pointRadius: 0, tension: 0.3, fill: false, yAxisID: 'y2' },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x:  { grid: { color: MUTED }, ticks: { maxRotation: 45 } },
+      y:  { grid: { color: MUTED }, ticks: { callback: v => '€' + (v/1000).toFixed(0) + 'k' } },
+      y2: { position: 'right', grid: { display: false },
+            ticks: { callback: v => '€' + (v/1000).toFixed(0) + 'k' } },
+    }
+  }
+});
+
+// Spent-by-category horizontal bar (only tags with spending, desc)
+const spentCats = {{ spent_by_cat | tojson }};
+const pctLabels = {
+  id: 'pctLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx, data, chartArea: { right } } = chart;
+    const meta = chart.getDatasetMeta(0);
+    ctx.save();
+    ctx.fillStyle = '#ececf0';
+    ctx.font = '600 11px -apple-system, sans-serif';
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((bar, i) => {
+      const c = spentCats[i];
+      const pct = (c.pct * 100).toFixed(1) + '%';
+      const x = Math.min(bar.x + 6, right - 40);
+      ctx.fillText(pct, x, bar.y);
+    });
+    ctx.restore();
+  }
+};
+new Chart(document.getElementById('spentChart'), {
+  type: 'bar',
+  plugins: [pctLabels],
+  data: {
+    labels: spentCats.map(c => c.name),
+    datasets: [{
+      data: spentCats.map(c => c.amount),
+      backgroundColor: BLUE + 'aa', borderColor: BLUE, borderWidth: 1,
+    }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: {
+        label: ctx => {
+          const c = spentCats[ctx.dataIndex];
+          return '€' + c.amount.toLocaleString('pt-PT') +
+                 '  (' + (c.pct * 100).toFixed(1) + '%)';
+        }
+      }}
+    },
+    scales: {
+      x: { grid: { color: MUTED }, ticks: { callback: v => '€' + (v/1000).toFixed(0) + 'k' } },
+      y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+    }
+  }
+});
+</script>
+{% endblock %}
