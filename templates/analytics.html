@@ -179,8 +179,7 @@ new Chart(document.getElementById('monthlyChart'), {
     scales: {
       x:  { grid: { color: MUTED }, ticks: { maxRotation: 45 } },
       y:  { grid: { color: MUTED }, ticks: { callback: v => '€' + (v/1000).toFixed(0) + 'k' } },
-      y2: { position: 'right', grid: { display: false },
-            ticks: { callback: v => '€' + (v/1000).toFixed(0) + 'k' } },
+      y2: { display: false, position: 'right' },
     }
   }
 });

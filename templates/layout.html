@@ -216,21 +216,27 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .text-muted  { color: var(--muted); }
 .fw7 { font-weight: 600; }
 
-/* Demo mode — blur sensitive financial data for screenshots */
+/* Demo mode — redact ONLY the € values. Everything else (charts, descriptions,
+   payees, tags, dates, labels) stays visible. Numbers become soft glowing
+   blobs so you can see something is there but can't read the digits. */
 body.demo .eur,
 body.demo .kpi-value,
-body.demo .kpi-sub,
 body.demo .phase-vals,
 body.demo .txn-amount,
-body.demo canvas,
-body.demo .sensitive {
-  filter: blur(6px);
+body.demo .kpi-sub {
+  color: transparent !important;
+  text-shadow: 0 0 9px rgba(232, 236, 240, 0.55);
   user-select: none;
-  transition: filter 0.2s;
+  transition: color 0.2s, text-shadow 0.2s;
 }
-body.demo .sensitive:hover,
 body.demo .eur:hover,
-body.demo .kpi-value:hover { filter: blur(0); }
+body.demo .kpi-value:hover,
+body.demo .phase-vals:hover,
+body.demo .txn-amount:hover,
+body.demo .kpi-sub:hover {
+  color: inherit !important;
+  text-shadow: none;
+}
 
 @media (max-width: 640px) {
   .kpi-grid  { grid-template-columns: 1fr 1fr; }
