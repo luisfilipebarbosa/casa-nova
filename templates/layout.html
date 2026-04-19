@@ -25,6 +25,10 @@
   --red-bg:   #2d1010;
   --radius:   12px;
   --font:     -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Sticky-header geometry. --kpi-h must match .kpi-grid rendered height
+     (padding box). Tune if cards get taller/shorter or padding changes. */
+  --nav-h:    48px;   /* height of the sticky nav */
+  --kpi-h:    150px;  /* height of the sticky KPI strip (1 row of 4 cards) */
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 15px; }
@@ -76,9 +80,17 @@ main { max-width: 1100px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
 .card-title { font-size: 0.8rem; font-weight: 600; color: var(--muted);
               margin-bottom: 0.5rem; }
 
-/* KPI grid */
+/* KPI grid — sticks below the nav while scrolling. Uses padding (not margin)
+   for all spacing so the opaque background fills every pixel from the nav
+   to where thead starts — no transparent gap for scrolling content to bleed
+   through. A bottom border gives a clean edge. */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 1rem; margin-bottom: 1.25rem; }
+            gap: 1rem;
+            position: sticky; top: var(--nav-h); z-index: 50;
+            background: var(--bg);
+            padding: 0.75rem 0 1.25rem;     /* bottom padding replaces old margin-bottom */
+            margin: -0.75rem 0 0;            /* negative top preserves original layout */
+            border-bottom: 1px solid var(--border); }
 .kpi { background: var(--s1); border: 1px solid var(--border);
        border-radius: var(--radius); padding: 1.35rem 1.45rem; }
 .kpi-label { font-size: 0.78rem; font-weight: 500; color: var(--muted);
@@ -96,11 +108,12 @@ main { max-width: 1100px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
                  color: var(--text); margin: 2.5rem 0 1rem; }
 
 /* Tables */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap { overflow: visible; }  /* visible so thead sticky sticks to the page, not to this wrapper */
 table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-thead th { background: transparent; color: var(--muted); font-size: 0.78rem;
+thead th { background: var(--s1); color: var(--muted); font-size: 0.78rem;
            font-weight: 500; padding: 0.9rem 1rem; text-align: left;
-           white-space: nowrap; border-bottom: 1px solid var(--border); }
+           white-space: nowrap; border-bottom: 1px solid var(--border);
+           position: sticky; top: calc(var(--nav-h) + var(--kpi-h)); z-index: 5; }
 thead th.num { text-align: right; }
 tbody tr { border-bottom: 1px solid var(--border); }
 tbody tr:last-child { border-bottom: none; }
@@ -239,11 +252,16 @@ body.demo .kpi-sub:hover {
 }
 
 @media (max-width: 640px) {
+  :root { --kpi-h: 250px; }                  /* 2x2 KPI grid is taller */
   .kpi-grid  { grid-template-columns: 1fr 1fr; }
   .kpi-value { font-size: 1.25rem; }
   .chart-grid { grid-template-columns: 1fr; }
   .form-grid  { grid-template-columns: 1fr; }
   .nav-link:not(.cta) span { display: none; }
+  /* On narrow screens, allow tables to scroll horizontally. Sticky thead
+     doesn't work inside a scroll container, so we trade it away here. */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  thead th    { position: static; }
 }
 </style>
 </head>
