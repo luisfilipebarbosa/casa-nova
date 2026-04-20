@@ -64,6 +64,7 @@ No database. The spreadsheet is the database. YNAB is the second source of truth
 - The YNAB personal token is kept in an RTF file under `~/Documents/Finance/` and read at startup. It is **not** in this repo.
 - The spreadsheet is gitignored.
 - The server binds to `0.0.0.0:5001` so I can hit it from my phone on the home wifi, but there is no auth. It is only meant for the local network.
+- The Flask `secret_key` is hardcoded on purpose. The app has no auth and only runs on the LAN, so it isn't really protecting anything. If this ever grows into a multi-user thing, that needs to change (auto-generated secret, kept out of the repo).
 
 ---
 

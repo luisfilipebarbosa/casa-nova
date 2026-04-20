@@ -15,7 +15,7 @@ from datetime import datetime, date
 from collections import defaultdict
 
 app = Flask(__name__)
-app.secret_key = 'casanova-local-2025'
+app.secret_key = 'casanova-local-2025'  # local-only, no auth — rotate if app ever goes public
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
