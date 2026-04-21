@@ -139,7 +139,10 @@
             {{ r.conta or '—' }}
           </span>
         </td>
-        <td class="num fw7 eur text-blue">€{{ "{:,.2f}".format(r.amount) }}</td>
+        <td class="num fw7 eur text-blue">
+          {% if r.fatura %}<a href="{{ r.fatura }}" target="_blank" rel="noopener" title="Abrir fatura" style="text-decoration:none; margin-right:0.3rem">🔗</a>{% endif %}
+          €{{ "{:,.2f}".format(r.amount) }}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

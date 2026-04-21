@@ -124,11 +124,12 @@ def load_gastos():
         raw_h = str(row[7]).strip() if len(row) > 7 and row[7] else ''
         ids = [x.strip() for x in raw_h.split(';') if x.strip()] if raw_h else []
         ynab_ids.update(ids)
+        fatura = str(row[9]).strip() if len(row) > 9 and row[9] else ''
         rows.append({
             'rownum': i, 'date': dt, 'amount': float(v),
             'desc': str(row[2] or ''), 'payee': str(row[3] or ''),
             'tag': str(row[4] or ''), 'conta': str(row[5] or ''),
-            'ynab_ids': ids,
+            'ynab_ids': ids, 'fatura': fatura,
         })
     return rows, ynab_ids
 
@@ -147,7 +148,7 @@ def link_ynab_id(rownum, txn_id):
     cell.value = ';'.join(existing)
     wb.save(NOVA_FILE)
 
-def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None):
+def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None):
     wb = openpyxl.load_workbook(NOVA_FILE)
     ws = wb['💸 Gastos']
     r = ws.max_row + 1
@@ -159,8 +160,11 @@ def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None):
     ws.cell(r, 4, payee)
     ws.cell(r, 5, tag)
     ws.cell(r, 6, conta)
+    ws.cell(r, 7, conta)
     if ynab_id:
         ws.cell(r, 8, ynab_id)
+    if fatura:
+        ws.cell(r, 10, fatura)
     wb.save(NOVA_FILE)
     subprocess.Popen([sys.executable, DASHBOARD_PY])
 
@@ -316,6 +320,7 @@ def add():
             new_tag = request.form.get('newtag', '').strip()
             tag    = new_tag or request.form['tag']
             conta  = request.form.get('conta', 'Cash')
+            fatura = request.form.get('fatura', '').strip() or None
 
             account_id = CASH_OBRA_ID if conta == 'Cash' else MG_ID
             ynab_id = None
@@ -333,13 +338,21 @@ def add():
             except Exception as e:
                 flash(f'Aviso YNAB: {e}', 'warning')
 
-            append_row(dt, amount, desc, payee, tag, conta, ynab_id)
+            append_row(dt, amount, desc, payee, tag, conta, ynab_id, fatura)
             flash(f'✓ Adicionado: €{amount:,.2f} — {desc}', 'success')
             return redirect(url_for('index'))
         except Exception as e:
             flash(f'Erro: {e}', 'error')
 
     return render_template('add.html', tags=get_tags(), today=date.today().strftime('%Y-%m-%d'))
+
+@app.route('/open-excel', methods=['POST'])
+def open_excel():
+    try:
+        subprocess.Popen(['open', NOVA_FILE])
+        return ('', 204)
+    except Exception as e:
+        return (str(e), 500)
 
 @app.route('/sync')
 def sync():
@@ -384,7 +397,8 @@ def sync_confirm():
             new_tag = request.form.get(f'newtag_{tid}', '').strip()
             tag     = new_tag or request.form.get(f'tag_{tid}', '')
             desc    = t.get('memo') or t.get('payee_name', '')
-            append_row(dt, amount, desc, t.get('payee_name', ''), tag, conta, t['id'])
+            fatura  = request.form.get(f'fatura_{tid}', '').strip() or None
+            append_row(dt, amount, desc, t.get('payee_name', ''), tag, conta, t['id'], fatura)
             imported += 1
 
         elif act == 'link':
