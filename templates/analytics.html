@@ -14,9 +14,16 @@
     <div class="kpi-sub">s/IVA: €{{ "{:,.0f}".format(projected_siva) }}</div>
   </div>
   <div class="kpi green">
-    <div class="kpi-label">Liquidez actual</div>
+    <div class="kpi-label">Disponibilidade Casa Nova</div>
     <div class="kpi-value eur">€{{ "{:,.0f}".format(available) }}</div>
-    <div class="kpi-sub">Banco + Cash (YNAB)</div>
+    <div class="kpi-sub">
+      Banco €{{ "{:,.0f}".format(bank) }} · Cash €{{ "{:,.0f}".format(cash) }}
+      {% if balance_source == 'live' %}
+        · <span style="color:var(--green)" title="Categoria Casa Nova no YNAB">● live</span>
+      {% else %}
+        · <span style="color:var(--orange)" title="YNAB inacessível — a usar valores da folha Parâmetros (proxy)">⚠ fallback</span>
+      {% endif %}
+    </div>
   </div>
   <div class="kpi orange">
     <div class="kpi-label">Falta pagar</div>

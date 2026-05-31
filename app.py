@@ -13,6 +13,7 @@ import re
 import qrcode
 from datetime import datetime, date
 from collections import defaultdict
+import time
 
 app = Flask(__name__)
 app.secret_key = 'casanova-local-2025'  # local-only, no auth — rotate if app ever goes public
@@ -101,6 +102,49 @@ def ynab_post(path, body):
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read())
 
+# ── Liquidity source of truth: YNAB live, with Parâmetros as fallback ────────
+# "Disponibilidade Casa Nova" is the YNAB *category* available balance for the
+# build — money allocated and ready to spend on the house, independent of what
+# else sits in the same bank account. This is the canonical headline number.
+# Bank + Cash account balances are also fetched, as a secondary "where does
+# the money sit" breakdown. Every expense logged via the app posts to YNAB, so
+# both numbers update on next read. If YNAB is unreachable we fall back to
+# B2/B3 from the Parâmetros sheet, and the UI shows ⚠ fallback so the staleness
+# is never silent.
+_balance_cache = {'data': None, 'ts': 0.0}
+BALANCE_TTL = 60  # seconds — short enough to feel live, long enough to avoid hammering YNAB
+
+def ynab_snapshot():
+    """Return (available_eur, bank_eur, cash_eur, source).
+
+    available: YNAB 'available' for the Casa Nova category (CAT_ID) — the
+      true disponibilidade for the build.
+    bank, cash: balances of MG Ordenado and Cache obra accounts — shown as
+      breakdown context, not the headline.
+    source: 'live' when fetched from YNAB, 'fallback' when YNAB was
+      unreachable. In fallback we approximate available as bank + cash from
+      the Parâmetros sheet, which is a rougher proxy.
+    """
+    now = time.time()
+    cached = _balance_cache['data']
+    if cached and (now - _balance_cache['ts'] < BALANCE_TTL):
+        return cached
+    try:
+        cat = ynab_get(f'/budgets/{BUDGET_ID}/categories/{CAT_ID}')
+        available = cat['data']['category']['balance'] / 1000.0
+        accs = ynab_get(f'/budgets/{BUDGET_ID}/accounts')
+        accounts = {a['id']: a for a in accs['data']['accounts'] if not a.get('deleted')}
+        bank = accounts[MG_ID]['balance'] / 1000.0
+        cash = accounts[CASH_OBRA_ID]['balance'] / 1000.0
+        result = (available, bank, cash, 'live')
+        _balance_cache.update(data=result, ts=now)
+        return result
+    except Exception:
+        # Falls back to whatever was last entered in the Parâmetros sheet.
+        # Surfaced in the UI as a warning so it's never silently stale.
+        p = get_params()
+        return (p['bank'] + p['cash'], p['bank'], p['cash'], 'fallback')
+
 # ── Excel helpers ─────────────────────────────────────────────────────────────
 def get_params():
     wb = openpyxl.load_workbook(NOVA_FILE, data_only=True)
@@ -172,6 +216,7 @@ def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None):
 def build_analytics():
     rows, _ = load_gastos()
     params   = get_params()
+    available, bank, cash, balance_source = ynab_snapshot()
 
     tag_totals = defaultdict(float)
     monthly    = defaultdict(float)
@@ -241,7 +286,7 @@ def build_analytics():
     for v in monthly_values:
         cum += v; cumulative.append(round(cum, 2))
 
-    available = params['bank'] + params['cash']
+    # available comes from ynab_snapshot above — YNAB category 'available'
 
     # Projected c/IVA: per category — untouched → budget; closed → actual; else max(actual, budget)
     projected = 0
@@ -281,7 +326,8 @@ def build_analytics():
     return dict(
         total=total, budget_civa=TOTAL_CIVA, budget_siva=TOTAL_SIVA,
         pct=total / TOTAL_CIVA if TOTAL_CIVA else 0,
-        available=available, projected=projected, projected_siva=projected_siva,
+        available=available, bank=bank, cash=cash, balance_source=balance_source,
+        projected=projected, projected_siva=projected_siva,
         remaining_to_pay=remaining_to_pay,
         da=params['da'],
         table=table, categories=categories, spent_by_cat=spent_by_cat, recent=recent,
@@ -339,6 +385,7 @@ def add():
                 flash(f'Aviso YNAB: {e}', 'warning')
 
             append_row(dt, amount, desc, payee, tag, conta, ynab_id, fatura)
+            _balance_cache['ts'] = 0.0  # force refresh — balance just changed
             flash(f'✓ Adicionado: €{amount:,.2f} — {desc}', 'success')
             return redirect(url_for('index'))
         except Exception as e:
@@ -409,6 +456,9 @@ def sync_confirm():
 
         else:
             ignored += 1
+
+    if imported or linked:
+        _balance_cache['ts'] = 0.0  # force refresh — YNAB state just changed
 
     msg = []
     if imported: msg.append(f'{imported} importada(s)')
