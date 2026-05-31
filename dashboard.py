@@ -5,6 +5,7 @@ All metrics use Excel SUMIF/SUMPRODUCT formulas referencing '💸 Gastos'.
 A '⚙️ Parâmetros' sheet holds editable reference values (YNAB balances, loan info).
 """
 
+import os
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -12,7 +13,8 @@ from openpyxl.chart import BarChart, LineChart, Reference
 from datetime import date
 from collections import defaultdict
 
-NOVA_FILE = '/Users/luisfbarbosa/Documents/Claude/Casa Nova/Custos Casa Nova - Nova2.xlsx'
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+NOVA_FILE = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
 G         = "'💸 Gastos'"      # sheet reference for formulas
 MAX_ROW   = 500                # formula range ceiling
 
