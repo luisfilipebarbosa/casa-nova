@@ -158,13 +158,13 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
-const BLUE   = '#b8a4ff';
-const GREEN  = '#6fc786';
-const ORANGE = '#d4a84b';
-const MUTED  = '#1e2028';
+const BLUE   = '#6d5bd0';
+const GREEN  = '#25904c';
+const ORANGE = '#b07a10';
+const MUTED  = '#e2e5ea';
 
-Chart.defaults.color = '#7a7d85';
-Chart.defaults.borderColor = '#16181f';
+Chart.defaults.color = '#6b7078';
+Chart.defaults.borderColor = '#e2e5ea';
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 Chart.defaults.font.size = 11;
 
@@ -203,7 +203,7 @@ const pctLabels = {
     const { ctx, data, chartArea: { right } } = chart;
     const meta = chart.getDatasetMeta(0);
     ctx.save();
-    ctx.fillStyle = '#ececf0';
+    ctx.fillStyle = '#1c1f26';
     ctx.font = '600 11px -apple-system, sans-serif';
     ctx.textBaseline = 'middle';
     meta.data.forEach((bar, i) => {

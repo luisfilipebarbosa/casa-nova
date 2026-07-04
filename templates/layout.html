@@ -4,25 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f7f9">
 <title>Casa Nova — Análise</title>
 <style>
 :root {
-  --bg:       #0a0b0e;
-  --s1:       #101116;
-  --s2:       #16181f;
-  --border:   #1e2028;
-  --text:     #ececf0;
-  --muted:    #7a7d85;
-  --accent:   #b8a4ff;
-  --accent-bg:#1c1531;
-  --green:    #6fc786;
-  --green-bg: #122a1c;
-  --orange:   #d4a84b;
-  --orange-bg:#2a1f08;
-  --red:      #e27070;
-  --red-bg:   #2d1010;
+  --bg:       #f6f7f9;
+  --s1:       #ffffff;
+  --s2:       #eef0f4;
+  --border:   #e2e5ea;
+  --text:     #1c1f26;
+  --muted:    #6b7078;
+  --accent:   #6d5bd0;
+  --accent-bg:#efeafd;
+  --green:    #25904c;
+  --green-bg: #e6f5ec;
+  --orange:   #b07a10;
+  --orange-bg:#fdf3df;
+  --red:      #c94848;
+  --red-bg:   #fdeaea;
   --radius:   12px;
   --font:     -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   /* Sticky-header geometry. --kpi-h must match .kpi-grid rendered height
@@ -50,10 +50,10 @@ nav { background: var(--s1); border-bottom: 1px solid var(--border);
             transition: color 0.15s, border-color 0.15s; white-space: nowrap; }
 .nav-link:hover { color: var(--text); }
 .nav-link.active { color: var(--text); border-bottom-color: var(--accent); }
-.nav-link.cta { background: var(--accent); color: #0a0b0e; border-radius: 99px;
+.nav-link.cta { background: var(--accent); color: #ffffff; border-radius: 99px;
                 margin-left: 0.5rem; padding: 0.5rem 1rem; border-bottom: none;
                 font-size: 0.8rem; font-weight: 600; }
-.nav-link.cta:hover { background: #cdbdff; }
+.nav-link.cta:hover { background: #5a48c0; }
 
 /* Layout */
 main { max-width: 1100px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
@@ -68,11 +68,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 2.25rem 1.25rem 5rem; }
 .flash { padding: 0.7rem 1rem; border-radius: var(--radius); font-size: 0.875rem;
          display: flex; align-items: center; gap: 0.5rem; }
 .flash.success { background: var(--green-bg); color: var(--green);
-                 border: 1px solid #1a5c2a; }
+                 border: 1px solid #b7e3c6; }
 .flash.error   { background: var(--red-bg);   color: var(--red);
-                 border: 1px solid #5c1a1a; }
+                 border: 1px solid #f2c4c4; }
 .flash.warning { background: var(--orange-bg); color: var(--orange);
-                 border: 1px solid #5c4010; }
+                 border: 1px solid #ecd9ac; }
 
 /* Cards */
 .card { background: var(--s1); border: 1px solid var(--border);
@@ -168,10 +168,10 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
        border-radius: 8px; font-size: 0.875rem; font-weight: 600; cursor: pointer;
        border: none; text-decoration: none; transition: opacity 0.15s; }
 .btn:active { opacity: 0.8; }
-.btn-primary { background: var(--accent); color: #0a0b0e; width: 100%;
+.btn-primary { background: var(--accent); color: #ffffff; width: 100%;
                justify-content: center; margin-top: 0.5rem; font-size: 0.95rem; padding: 0.85rem; }
 .btn-ghost   { background: var(--s2); color: var(--text); border: 1px solid var(--border); }
-.btn-green   { background: var(--green); color: #0a0b0e; }
+.btn-green   { background: var(--green); color: #ffffff; }
 
 /* Sync list */
 .txn-card { background: var(--s1); border: 1px solid var(--border);
@@ -238,7 +238,7 @@ body.demo .phase-vals,
 body.demo .txn-amount,
 body.demo .kpi-sub {
   color: transparent !important;
-  text-shadow: 0 0 9px rgba(232, 236, 240, 0.55);
+  text-shadow: 0 0 9px rgba(28, 31, 38, 0.45);
   user-select: none;
   transition: color 0.2s, text-shadow 0.2s;
 }
@@ -281,6 +281,13 @@ body.demo .kpi-sub:hover {
         <path d="M11.5 10a3 3 0 000-6 4.5 4.5 0 00-8.58 1.5A3 3 0 004 11.5h7.5z"/>
       </svg>
       <span>Sync YNAB</span>
+    </a>
+    <a class="nav-link {% if request.endpoint == 'assistant' %}active{% endif %}" href="/assistente">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 8a6 6 0 01-6 6H2.5l1.2-2.4A6 6 0 1114 8z"/>
+        <path d="M5.5 7h5M5.5 9.5h3"/>
+      </svg>
+      <span>Assistente</span>
     </a>
     <a class="nav-link" href="#" onclick="fetch('/open-excel',{method:'POST'});return false;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
