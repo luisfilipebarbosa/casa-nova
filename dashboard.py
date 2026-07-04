@@ -126,26 +126,52 @@ def sumproduct_conta_since(conta, since_cell):
 
 def build_params(wb):
     name = '⚙️ Parâmetros'
-    if name in wb.sheetnames: del wb[name]
+
+    # Preserve user-edited values across rebuilds. The constants at the top of
+    # this file are FIRST-CREATION DEFAULTS ONLY — the sheet is the live copy,
+    # edited by hand (YNAB balances, tranche values, extra rows like B11).
+    # Rebuilding from constants was silently reverting those edits every time
+    # an expense was added via the app (app.py runs this script after each
+    # append_row).
+    preserved = {}   # row -> (label, value)
+    if name in wb.sheetnames:
+        old = wb[name]
+        for r in range(2, 30):
+            label, val = old.cell(r, 1).value, old.cell(r, 2).value
+            if val is not None:
+                preserved[r] = (label, val)
+        del wb[name]
+
     ws = wb.create_sheet(name)
     ws.column_dimensions['A'].width = 35
     ws.column_dimensions['B'].width = 18
 
     header(ws, 1, 1, 2, '⚙️ Parâmetros — actualiza manualmente', BLUE_DARK, WHITE, 11)
 
+    def keep(row, default_label, default_val):
+        """Existing sheet value wins; constants only seed a fresh sheet."""
+        label, val = preserved.get(row, (None, None))
+        return (label or default_label), (val if val is not None else default_val)
+
     rows = [
-        ('YNAB — Banco (MG Ordenado)',    YNAB_BANK,              EUR,          BLUE_LIGHT),
-        ('YNAB — Cash (Cache obra)',       YNAB_CASH,              EUR,          BLUE_LIGHT),
-        ('Empréstimo 1ª tranche — data',  LOAN_DATE1,             'DD/MM/YYYY', BLUE_LIGHT),
-        ('Empréstimo 1ª tranche — valor', LOAN_AMT1,              EUR,          BLUE_LIGHT),
-        ('Empréstimo 2ª tranche — valor', LOAN_AMT2,              EUR,          BLUE_LIGHT),
-        ('Dona Ana — contribuição total', DA_TOTAL,               EUR,          BLUE_LIGHT),
-        ('Taxa IVA obras (ajusta se necessário)', IVA_RATE,       '0%',         ORANGE_F),
-        ('Orçamento total s/IVA',         TOTAL_BUDGET_SIVA,      EUR,          GREY_F),
-        ('Orçamento total c/IVA',         TOTAL_BUDGET,           EUR,          GREY_F),
+        keep(2,  'YNAB — Banco (MG Ordenado)',    YNAB_BANK)         + (EUR,          BLUE_LIGHT),
+        keep(3,  'YNAB — Cash (Cache obra)',       YNAB_CASH)         + (EUR,          BLUE_LIGHT),
+        keep(4,  'Empréstimo 1ª tranche — data',  LOAN_DATE1)        + ('DD/MM/YYYY', BLUE_LIGHT),
+        keep(5,  'Empréstimo 1ª tranche — valor', LOAN_AMT1)         + (EUR,          BLUE_LIGHT),
+        keep(6,  'Empréstimo 2ª tranche — valor', LOAN_AMT2)         + (EUR,          BLUE_LIGHT),
+        keep(7,  'Dona Ana — contribuição total', DA_TOTAL)          + (EUR,          BLUE_LIGHT),
+        keep(8,  'Taxa IVA obras (ajusta se necessário)', IVA_RATE)  + ('0%',         ORANGE_F),
+        keep(9,  'Orçamento total s/IVA',         TOTAL_BUDGET_SIVA) + (EUR,          GREY_F),
+        keep(10, 'Orçamento total c/IVA',         TOTAL_BUDGET)      + (EUR,          GREY_F),
     ]
     for i, (label, val, fmt, bg) in enumerate(rows, 2):
         kpi(ws, i, 1, label, val, fmt, bg)
+
+    # Restore any user-added rows beyond the standard block (e.g. B11 =
+    # Empréstimo aprovado total). Row 12 note is re-written below, so skip it.
+    for r, (label, val) in preserved.items():
+        if r > 10 and not (isinstance(label, str) and label.startswith('Nota:')):
+            kpi(ws, r, 1, label or '', val, EUR, BLUE_LIGHT)
 
     ws.cell(12, 1, 'Nota: actualiza B2 e B3 após cada extracto YNAB. B8 = taxa IVA aplicada ao orçamento.')
     ws.cell(12, 1).font = Font(italic=True, size=9, color='808080')
