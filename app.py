@@ -23,7 +23,7 @@ BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 NOVA_FILE    = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
 DASHBOARD_PY = os.path.join(BASE_DIR, 'dashboard.py')
 STATUS_FILE  = os.path.join(BASE_DIR, 'category_status.json')
-TOKEN_FILE   = os.path.expanduser('~/Documents/Finance/ynab token.rtf')
+TOKEN_FILE   = os.path.expanduser('~/Documents/Personal/Finance/ynab token.rtf')
 
 def load_category_status():
     if not os.path.exists(STATUS_FILE): return {}
