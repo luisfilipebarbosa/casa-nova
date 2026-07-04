@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Casa Nova — local web app: cash entry, bank sync, analytics."""
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
 import openpyxl
 import urllib.request
 import json
@@ -24,6 +24,7 @@ NOVA_FILE    = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
 DASHBOARD_PY = os.path.join(BASE_DIR, 'dashboard.py')
 STATUS_FILE  = os.path.join(BASE_DIR, 'category_status.json')
 TOKEN_FILE   = os.path.expanduser('~/Documents/Personal/Finance/ynab token.rtf')
+ANTHROPIC_KEY_FILE = os.path.expanduser('~/Documents/Personal/Finance/anthropic api key.txt')
 
 def load_category_status():
     if not os.path.exists(STATUS_FILE): return {}
@@ -466,6 +467,199 @@ def sync_confirm():
     if ignored:  msg.append(f'{ignored} ignorada(s)')
     flash('✓ ' + ' · '.join(msg) if msg else 'Nada processado.', 'success')
     return redirect(url_for('index'))
+
+# ── Assistente (Claude API) ───────────────────────────────────────────────────
+# Embedded consultant chat. Claude gets the full budget/spending picture as
+# cached context (prompt caching: persona + data snapshot form the stable
+# prefix; the per-turn conversation comes after the cache breakpoint).
+# The API key is loaded lazily so a missing key never crashes app startup
+# (lesson learned from the YNAB token FileNotFoundError incident).
+
+ASSISTANT_MODEL = 'claude-opus-4-8'
+
+ASSISTANT_PERSONA = """És um consultor sénior especializado em construção de \
+moradias unifamiliares em Portugal, contratado pelo Luís como assessor pessoal \
+para o projecto "Casa Nova" — a construção da casa da família dele.
+
+## O teu papel
+- Consultor técnico: fases de obra, sequência de trabalhos, boas práticas, \
+materiais, normas portuguesas (RGEU, REH, licenciamento camarário, telas finais, \
+livro de obra), IVA em obras (taxa normal 23%; autoliquidação quando aplicável).
+- Analista financeiro do projecto: acompanhas o orçamento, detectas derrapagens, \
+projectas custos até ao fim da obra, e ajudas a decidir onde apertar ou reforçar.
+- Assessor pragmático: o Luís é gestor experiente (Head of Delivery Management \
+em SaaS) — fala com ele de igual para igual, sem simplificações desnecessárias.
+
+## Contexto do projecto
+- Moradia unifamiliar em construção, financiada por: empréstimo bancário \
+(linha de crédito aprovada, tranches libertadas por fases), contribuição \
+familiar ("Dona Ana"), e capital próprio.
+- A gestão financeira corre em YNAB (You Need A Budget) + folha Excel própria. \
+Os dados que recebes abaixo vêm directamente dessas fontes.
+- Categorias de obra usadas: Terreno, Arquitectura, Construção grosso, Pladur, \
+Pichelaria & Climatização, Aluminio, Carpintaria, Construção acabamentos, \
+Capoto, Electricidade, Pintura, Piscina, Estores, Furo, Design & Decoração \
+Interiores, Serralheiro, Loiças & Cerâmicos, Electrodomésticos, Agua & Luz, \
+Outros, Taxas & Multas, Empréstimo.
+- Orçamentos por categoria estão definidos s/IVA; a comparação com gastos reais \
+é feita c/IVA (23%), excepto Terreno (isento).
+
+## Como responder
+- Responde sempre em português de Portugal (norma europeia, pré-acordo: \
+"projecto", "actual", "óptimo").
+- Sê directo e concreto. Números sempre que possível. Não valides por validar.
+- Quando fizeres análises, mostra o raciocínio de cálculo de forma compacta.
+- Se detectares um risco (derrapagem, categoria suborçamentada, falta de \
+liquidez prevista), di-lo proactivamente mesmo que não tenha sido perguntado.
+- Se te faltar informação que os dados não cobrem, di-lo explicitamente — \
+não inventes valores.
+- Usa formatação markdown ligeira: negrito para números-chave, tabelas quando \
+comparares categorias, listas curtas. Nada de headers pomposos em respostas curtas.
+"""
+
+_anthropic_client = None
+
+def get_anthropic_client():
+    """Lazy-init the Anthropic client. Key from env or key file."""
+    global _anthropic_client
+    if _anthropic_client is not None:
+        return _anthropic_client
+    import anthropic
+    key = os.environ.get('ANTHROPIC_API_KEY')
+    if not key:
+        # Accept the plain .txt or the .rtf TextEdit tends to produce
+        for path in (ANTHROPIC_KEY_FILE, ANTHROPIC_KEY_FILE + '.rtf',
+                     ANTHROPIC_KEY_FILE.replace('.txt', '.rtf')):
+            if os.path.exists(path):
+                with open(path, errors='ignore') as f:
+                    m = re.search(r'sk-ant-[A-Za-z0-9_-]{20,}', f.read())
+                if m:
+                    key = m.group(0)
+                    break
+    if not key:
+        raise RuntimeError(
+            f'Chave API Anthropic não encontrada. Cria o ficheiro '
+            f'"{ANTHROPIC_KEY_FILE}" com a tua chave (sk-ant-...), '
+            f'ou define ANTHROPIC_API_KEY.'
+        )
+    _anthropic_client = anthropic.Anthropic(api_key=key)
+    return _anthropic_client
+
+def build_assistant_snapshot():
+    """Deterministic serialization of the full project state for the system
+    prompt. No timestamps or volatile IDs — byte-stable between requests so
+    the prompt-cache prefix survives across turns. Only changes when the
+    underlying data changes (new expense, YNAB movement)."""
+    a = build_analytics()
+    rows, _ = load_gastos()
+    params = get_params()
+
+    lines = ['# Estado actual do projecto Casa Nova', '']
+    lines.append('## Situação financeira')
+    lines.append(f'- Disponibilidade Casa Nova (categoria YNAB): €{a["available"]:,.2f}')
+    lines.append(f'- Repartição: Banco €{a["bank"]:,.2f} · Cash Obra €{a["cash"]:,.2f}'
+                 f' (fonte: {a["balance_source"]})')
+    lines.append(f'- Total gasto até hoje: €{a["total"]:,.2f}'
+                 f' ({a["pct"]*100:.1f}% do orçamento c/IVA)')
+    lines.append(f'- Orçamento total: €{a["budget_siva"]:,.2f} s/IVA'
+                 f' = €{a["budget_civa"]:,.2f} c/IVA')
+    lines.append(f'- Custo projectado final: €{a["projected"]:,.2f} c/IVA'
+                 f' (€{a["projected_siva"]:,.2f} s/IVA)')
+    lines.append(f'- Falta pagar (orçamento não consumido, excl. fechadas):'
+                 f' €{a["remaining_to_pay"]:,.2f}')
+    lines.append('')
+    lines.append('## Financiamento')
+    lines.append(f'- Empréstimo aprovado (linha de crédito): €310,000.00')
+    lines.append(f'- Tranches libertadas: €{params["loan1"]:,.2f} (2025-02-21)'
+                 f' + €{params["loan2"]:,.2f} (2026-05-12) = €{params["loan1"]+params["loan2"]:,.2f}')
+    lines.append(f'- Margem de crédito ainda disponível: €{310000-params["loan1"]-params["loan2"]:,.2f}')
+    lines.append(f'- Contribuição Dona Ana: €{params["da"]:,.2f} (totalmente entregue)')
+    lines.append('')
+    lines.append('## Orçamento vs real por categoria (valores c/IVA excepto indicação)')
+    lines.append('| Categoria | Gasto | Orçamento c/IVA | % | Estado |')
+    lines.append('|---|---|---|---|---|')
+    for row in a['table']:
+        if row['has_budget']:
+            lines.append(f'| {row["tag"]} | €{row["actual"]:,.2f} |'
+                         f' €{row["budget_civa"]:,.2f} | {row["pct"]*100:.0f}% |'
+                         f' {row["status"]} |')
+        else:
+            lines.append(f'| {row["tag"]} | €{row["actual"]:,.2f} | — | — | sem orçamento |')
+    lines.append('')
+    lines.append('## Registo completo de gastos (data | valor | descrição | fornecedor | categoria | conta)')
+    for r in sorted(rows, key=lambda x: (x['date'] or date.min)):
+        d = r['date'].date().isoformat() if hasattr(r['date'], 'date') else (
+            r['date'].isoformat() if r['date'] else '—')
+        lines.append(f'{d} | €{r["amount"]:,.2f} | {r["desc"]} | {r["payee"]}'
+                     f' | {r["tag"]} | {r["conta"]}')
+    return '\n'.join(lines)
+
+@app.route('/assistente')
+def assistant():
+    return render_template('chat.html')
+
+@app.route('/assistente/stream', methods=['POST'])
+def assistant_stream():
+    import anthropic
+
+    payload  = request.get_json(force=True)
+    messages = payload.get('messages', [])
+    if not messages:
+        return jsonify({'error': 'sem mensagens'}), 400
+
+    try:
+        client   = get_anthropic_client()
+        snapshot = build_assistant_snapshot()
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
+    except Exception as e:
+        return jsonify({'error': f'Erro ao preparar contexto: {e}'}), 500
+
+    system = [
+        {'type': 'text', 'text': ASSISTANT_PERSONA},
+        # Breakpoint on the snapshot: persona + data form the cached prefix.
+        # Multi-turn conversations pay the cache-write once, then read.
+        {'type': 'text', 'text': snapshot,
+         'cache_control': {'type': 'ephemeral'}},
+        # Volatile content after the breakpoint — never invalidates the cache.
+        {'type': 'text', 'text': f'Data de hoje: {date.today().isoformat()}'},
+    ]
+
+    def generate():
+        try:
+            with client.messages.stream(
+                model=ASSISTANT_MODEL,
+                max_tokens=16000,
+                thinking={'type': 'adaptive'},
+                system=system,
+                messages=messages,
+            ) as stream:
+                for event in stream:
+                    if (event.type == 'content_block_delta'
+                            and event.delta.type == 'text_delta'):
+                        yield 'data: ' + json.dumps(
+                            {'text': event.delta.text}, ensure_ascii=False) + '\n\n'
+                final = stream.get_final_message()
+                yield 'data: ' + json.dumps({
+                    'done': True,
+                    'cache_read': final.usage.cache_read_input_tokens,
+                    'cache_write': final.usage.cache_creation_input_tokens,
+                }) + '\n\n'
+        except anthropic.AuthenticationError:
+            yield 'data: ' + json.dumps(
+                {'error': 'Chave API inválida — verifica o ficheiro da chave.'}) + '\n\n'
+        except anthropic.RateLimitError:
+            yield 'data: ' + json.dumps(
+                {'error': 'Rate limit atingido — tenta de novo daqui a um minuto.'}) + '\n\n'
+        except anthropic.APIStatusError as e:
+            yield 'data: ' + json.dumps(
+                {'error': f'Erro da API ({e.status_code}): {e.message}'}) + '\n\n'
+        except anthropic.APIConnectionError:
+            yield 'data: ' + json.dumps(
+                {'error': 'Sem ligação à API Anthropic — verifica a internet.'}) + '\n\n'
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
