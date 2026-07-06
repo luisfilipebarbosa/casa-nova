@@ -475,7 +475,16 @@ def sync_confirm():
 # The API key is loaded lazily so a missing key never crashes app startup
 # (lesson learned from the YNAB token FileNotFoundError incident).
 
-ASSISTANT_MODEL = 'claude-opus-4-8'
+# Sonnet 5: near-Opus analysis quality at ~40% of the price (intro $2/$10 per
+# MTok through 2026-08), and the cheapest model that supports the modern
+# web_search tool (Haiku doesn't). effort=medium trims thinking spend further.
+ASSISTANT_MODEL = 'claude-sonnet-5'
+
+ASSISTANT_TOOLS = [{
+    'type': 'web_search_20260209',
+    'name': 'web_search',
+    'max_uses': 3,
+}]
 
 ASSISTANT_PERSONA = """És um consultor sénior especializado em construção de \
 moradias unifamiliares em Portugal, contratado pelo Luís como assessor pessoal \
@@ -513,6 +522,10 @@ Outros, Taxas & Multas, Empréstimo.
 liquidez prevista), di-lo proactivamente mesmo que não tenha sido perguntado.
 - Se te faltar informação que os dados não cobrem, di-lo explicitamente — \
 não inventes valores.
+- Tens acesso a pesquisa na web. Usa-a quando a resposta depender de \
+informação externa actual: preços de mercado de materiais/serviços, alterações \
+a normas ou taxas, fornecedores, prazos típicos. Não pesquises para o que já \
+está nos dados do projecto.
 - Usa formatação markdown ligeira: negrito para números-chave, tabelas quando \
 comparares categorias, listas curtas. Nada de headers pomposos em respostas curtas.
 """
@@ -596,7 +609,8 @@ def build_assistant_snapshot():
 
 @app.route('/assistente')
 def assistant():
-    return render_template('chat.html')
+    # The chat now lives in a drawer on every page (layout.html)
+    return redirect(url_for('index'))
 
 @app.route('/assistente/stream', methods=['POST'])
 def assistant_stream():
@@ -627,24 +641,38 @@ def assistant_stream():
 
     def generate():
         try:
-            with client.messages.stream(
-                model=ASSISTANT_MODEL,
-                max_tokens=16000,
-                thinking={'type': 'adaptive'},
-                system=system,
-                messages=messages,
-            ) as stream:
-                for event in stream:
-                    if (event.type == 'content_block_delta'
-                            and event.delta.type == 'text_delta'):
-                        yield 'data: ' + json.dumps(
-                            {'text': event.delta.text}, ensure_ascii=False) + '\n\n'
-                final = stream.get_final_message()
-                yield 'data: ' + json.dumps({
-                    'done': True,
-                    'cache_read': final.usage.cache_read_input_tokens,
-                    'cache_write': final.usage.cache_creation_input_tokens,
-                }) + '\n\n'
+            convo = list(messages)
+            for _ in range(5):  # pause_turn continuation cap
+                with client.messages.stream(
+                    model=ASSISTANT_MODEL,
+                    max_tokens=16000,
+                    thinking={'type': 'adaptive'},
+                    output_config={'effort': 'medium'},
+                    system=system,
+                    tools=ASSISTANT_TOOLS,
+                    messages=convo,
+                ) as stream:
+                    for event in stream:
+                        if (event.type == 'content_block_start'
+                                and event.content_block.type == 'server_tool_use'):
+                            yield 'data: ' + json.dumps(
+                                {'status': 'a pesquisar na web…'}) + '\n\n'
+                        elif (event.type == 'content_block_delta'
+                                and event.delta.type == 'text_delta'):
+                            yield 'data: ' + json.dumps(
+                                {'text': event.delta.text}, ensure_ascii=False) + '\n\n'
+                    final = stream.get_final_message()
+                # Server-side tool loop hit its iteration limit — resume where
+                # it left off by echoing the assistant turn back.
+                if final.stop_reason == 'pause_turn':
+                    convo = convo + [{'role': 'assistant', 'content': final.content}]
+                    continue
+                break
+            yield 'data: ' + json.dumps({
+                'done': True,
+                'cache_read': final.usage.cache_read_input_tokens,
+                'cache_write': final.usage.cache_creation_input_tokens,
+            }) + '\n\n'
         except anthropic.AuthenticationError:
             yield 'data: ' + json.dumps(
                 {'error': 'Chave API inválida — verifica o ficheiro da chave.'}) + '\n\n'

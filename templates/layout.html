@@ -282,7 +282,7 @@ body.demo .kpi-sub:hover {
       </svg>
       <span>Sync YNAB</span>
     </a>
-    <a class="nav-link {% if request.endpoint == 'assistant' %}active{% endif %}" href="/assistente">
+    <a class="nav-link" href="#" onclick="chatToggle();return false;">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 8a6 6 0 01-6 6H2.5l1.2-2.4A6 6 0 1114 8z"/>
         <path d="M5.5 7h5M5.5 9.5h3"/>
@@ -316,5 +316,208 @@ body.demo .kpi-sub:hover {
   {% endwith %}
   {% block content %}{% endblock %}
 </main>
+
+<!-- Assistente — slide-in drawer, available on every page -->
+<style>
+.chat-fab { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 200;
+  width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--accent); color: #fff; display: flex; align-items: center;
+  justify-content: center; box-shadow: 0 4px 16px rgba(28,31,38,0.25);
+  transition: transform 0.15s; }
+.chat-fab:hover { transform: scale(1.06); }
+body.chat-open .chat-fab { display: none; }
+.chat-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 300;
+  width: 420px; max-width: 100vw; background: var(--bg);
+  border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(28,31,38,0.12);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform 0.22s ease; }
+body.chat-open .chat-drawer { transform: translateX(0); }
+.chat-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+  background: var(--s1); }
+.chat-head-title { font-weight: 600; font-size: 0.9rem; }
+.chat-head-title span { color: var(--muted); font-weight: 400; font-size: 0.78rem;
+  display: block; }
+.chat-head-actions { display: flex; gap: 0.4rem; }
+.chat-head-actions button { background: transparent; border: 1px solid var(--border);
+  color: var(--muted); border-radius: 7px; padding: 0.3rem 0.6rem;
+  font-size: 0.75rem; cursor: pointer; font-family: var(--font); }
+.chat-head-actions button:hover { color: var(--text); border-color: var(--muted); }
+.chat-log { flex: 1; overflow-y: auto; padding: 1rem;
+  display: flex; flex-direction: column; gap: 0.8rem; }
+.chat-msg { max-width: 94%; padding: 0.65rem 0.9rem; border-radius: 12px;
+  font-size: 0.87rem; line-height: 1.5; }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff;
+  border-bottom-right-radius: 4px; white-space: pre-wrap; }
+.chat-msg.assistant { align-self: flex-start; background: var(--s1);
+  border: 1px solid var(--border); border-bottom-left-radius: 4px;
+  overflow-x: auto; }
+.chat-msg.assistant table { font-size: 0.8rem; margin: 0.5rem 0;
+  border-collapse: collapse; }
+.chat-msg.assistant th, .chat-msg.assistant td { padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border); }
+.chat-msg.assistant p { margin: 0.35rem 0; }
+.chat-msg.assistant ul, .chat-msg.assistant ol { margin: 0.35rem 0 0.35rem 1.1rem; }
+.chat-msg.assistant code { background: var(--s2); padding: 0.1rem 0.3rem;
+  border-radius: 4px; font-size: 0.85em; }
+.chat-msg.error { align-self: center; background: var(--red-bg); color: var(--red);
+  font-size: 0.8rem; }
+.chat-status { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+.chat-hint { text-align: center; color: var(--muted); font-size: 0.82rem;
+  margin: 1.5rem 0.5rem; }
+.chat-hint .suggestions { display: flex; flex-wrap: wrap; gap: 0.45rem;
+  justify-content: center; margin-top: 0.9rem; }
+.chat-hint button { background: var(--s1); border: 1px solid var(--border);
+  color: var(--text); border-radius: 99px; padding: 0.4rem 0.8rem;
+  font-size: 0.76rem; cursor: pointer; font-family: var(--font); }
+.chat-hint button:hover { border-color: var(--accent); color: var(--accent); }
+.chat-form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border); background: var(--s1); }
+.chat-form textarea { flex: 1; resize: none; min-height: 44px; max-height: 140px;
+  border-radius: 10px; font-size: 0.87rem; }
+.chat-form button { background: var(--accent); color: #fff; border: none;
+  border-radius: 10px; width: 44px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; }
+.chat-form button:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 640px) { .chat-drawer { width: 100vw; } }
+</style>
+
+<button class="chat-fab" onclick="chatToggle()" aria-label="Assistente">
+  <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 8a6 6 0 01-6 6H2.5l1.2-2.4A6 6 0 1114 8z"/>
+    <path d="M5.5 7h5M5.5 9.5h3"/>
+  </svg>
+</button>
+
+<div class="chat-drawer" id="chatDrawer">
+  <div class="chat-head">
+    <div class="chat-head-title">Assistente Casa Nova
+      <span>consultor de obra · dados live</span></div>
+    <div class="chat-head-actions">
+      <button onclick="chatReset()" title="Nova conversa">Nova</button>
+      <button onclick="chatToggle()" title="Fechar">✕</button>
+    </div>
+  </div>
+  <div class="chat-log" id="chatLog"></div>
+  <div class="chat-form">
+    <textarea id="chatInput" rows="1" placeholder="Pergunta…"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend();}"></textarea>
+    <button id="chatSendBtn" onclick="chatSend()" aria-label="Enviar">
+      <svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1.7 8L14.3 1.9c.5-.2 1 .3.8.8L10 14.3c-.2.5-.9.5-1.1 0L7 9.9a.6.6 0 00-.3-.3L1.7 7.5c-.5-.2-.5-.9 0-1.1z" transform="rotate(45 8 8)"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script>
+const chatLog = document.getElementById('chatLog');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
+let chatHistory = JSON.parse(sessionStorage.getItem('cn_chat') || '[]');
+let chatBusy = false;
+
+function chatToggle() {
+  const open = document.body.classList.toggle('chat-open');
+  sessionStorage.setItem('cn_chat_open', open ? '1' : '');
+  if (open) chatInput.focus();
+}
+function chatReset() {
+  chatHistory = [];
+  sessionStorage.removeItem('cn_chat');
+  chatRender();
+}
+function chatSave() { sessionStorage.setItem('cn_chat', JSON.stringify(chatHistory)); }
+
+function chatAddMsg(cls, text) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg ' + cls;
+  if (cls === 'assistant') el.innerHTML = marked.parse(text);
+  else el.textContent = text;
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return el;
+}
+
+function chatRender() {
+  chatLog.innerHTML = '';
+  if (!chatHistory.length) {
+    chatLog.innerHTML = `<div class="chat-hint">
+      <div>Consultor do projecto Casa Nova — orçamento, fases de obra,
+      riscos, preços de mercado (com pesquisa web).</div>
+      <div class="suggestions">
+        <button onclick="chatAsk(this.textContent)">Como está a saúde financeira do projecto?</button>
+        <button onclick="chatAsk(this.textContent)">Que categorias estão em risco de derrapar?</button>
+        <button onclick="chatAsk(this.textContent)">Tenho liquidez para acabar a obra?</button>
+      </div></div>`;
+    return;
+  }
+  for (const m of chatHistory) chatAddMsg(m.role, m.content);
+}
+
+function chatAsk(q) { chatInput.value = q; chatSend(); }
+
+async function chatSend() {
+  const q = chatInput.value.trim();
+  if (!q || chatBusy) return;
+  chatBusy = true; chatSendBtn.disabled = true; chatInput.value = '';
+  if (!chatHistory.length) chatLog.innerHTML = '';
+
+  chatAddMsg('user', q);
+  chatHistory.push({role: 'user', content: q});
+
+  const el = chatAddMsg('assistant', '');
+  el.innerHTML = '<span class="chat-status">a pensar…</span>';
+  let acc = '';
+
+  try {
+    const resp = await fetch('/assistente/stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({messages: chatHistory}),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || ('HTTP ' + resp.status));
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const events = buf.split('\n\n');
+      buf = events.pop();
+      for (const ev of events) {
+        if (!ev.startsWith('data: ')) continue;
+        const d = JSON.parse(ev.slice(6));
+        if (d.error) throw new Error(d.error);
+        if (d.status) {
+          el.innerHTML = marked.parse(acc) +
+            '<div class="chat-status">' + d.status + '</div>';
+        }
+        if (d.text) {
+          acc += d.text;
+          el.innerHTML = marked.parse(acc);
+          chatLog.scrollTop = chatLog.scrollHeight;
+        }
+      }
+    }
+    chatHistory.push({role: 'assistant', content: acc});
+    chatSave();
+  } catch (e) {
+    el.remove();
+    chatHistory.pop();
+    chatAddMsg('error', '⚠ ' + e.message);
+  } finally {
+    chatBusy = false; chatSendBtn.disabled = false; chatInput.focus();
+  }
+}
+
+chatRender();
+if (sessionStorage.getItem('cn_chat_open')) document.body.classList.add('chat-open');
+</script>
 </body>
 </html>
