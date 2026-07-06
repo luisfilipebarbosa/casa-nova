@@ -319,6 +319,13 @@ body.demo .kpi-sub:hover {
 
 <!-- Assistente — slide-in drawer, available on every page -->
 <style>
+/* When the drawer is open the page reflows beside it (fixed sidebar), rather
+   than being covered. body padding shifts nav + main together; Chart.js picks
+   the resize up via its ResizeObserver. On narrow screens keep overlay mode. */
+body { transition: padding-right 0.22s ease; }
+body.chat-open { padding-right: 420px; }
+@media (max-width: 900px) { body.chat-open { padding-right: 0; } }
+
 .chat-fab { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 200;
   width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
   background: var(--accent); color: #fff; display: flex; align-items: center;
@@ -328,6 +335,7 @@ body.demo .kpi-sub:hover {
 body.chat-open .chat-fab { display: none; }
 .chat-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 300;
   width: 420px; max-width: 100vw; background: var(--bg);
+  overscroll-behavior: contain;
   border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(28,31,38,0.12);
   display: flex; flex-direction: column;
   transform: translateX(100%); transition: transform 0.22s ease; }
@@ -344,7 +352,8 @@ body.chat-open .chat-drawer { transform: translateX(0); }
   font-size: 0.75rem; cursor: pointer; font-family: var(--font); }
 .chat-head-actions button:hover { color: var(--text); border-color: var(--muted); }
 .chat-log { flex: 1; overflow-y: auto; padding: 1rem;
-  display: flex; flex-direction: column; gap: 0.8rem; }
+  display: flex; flex-direction: column; gap: 0.8rem;
+  overscroll-behavior: contain; }
 .chat-msg { max-width: 94%; padding: 0.65rem 0.9rem; border-radius: 12px;
   font-size: 0.87rem; line-height: 1.5; }
 .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff;
