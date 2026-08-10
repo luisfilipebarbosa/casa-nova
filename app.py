@@ -193,7 +193,14 @@ def link_ynab_id(rownum, txn_id):
     cell.value = ';'.join(existing)
     wb.save(NOVA_FILE)
 
-def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None):
+def regen_dashboard():
+    # Synchronous on purpose: a detached Popen here let dashboard.py re-save the
+    # workbook while the next append_row was already writing it — two writers on
+    # the same xlsx corrupted the zip (2026-08-10 incident).
+    subprocess.run([sys.executable, DASHBOARD_PY], timeout=60)
+
+def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None,
+               regen=True):
     wb = openpyxl.load_workbook(NOVA_FILE)
     ws = wb['💸 Gastos']
     r = ws.max_row + 1
@@ -211,10 +218,8 @@ def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None):
     if fatura:
         ws.cell(r, 10, fatura)
     wb.save(NOVA_FILE)
-    # Synchronous on purpose: a detached Popen here let dashboard.py re-save the
-    # workbook while the next append_row was already writing it — two writers on
-    # the same xlsx corrupted the zip (2026-08-10 incident).
-    subprocess.run([sys.executable, DASHBOARD_PY], timeout=60)
+    if regen:
+        regen_dashboard()
 
 # ── Analytics computation ─────────────────────────────────────────────────────
 def build_analytics():
@@ -449,7 +454,8 @@ def sync_confirm():
             tag     = new_tag or request.form.get(f'tag_{tid}', '')
             desc    = t.get('memo') or t.get('payee_name', '')
             fatura  = request.form.get(f'fatura_{tid}', '').strip() or None
-            append_row(dt, amount, desc, t.get('payee_name', ''), tag, conta, t['id'], fatura)
+            append_row(dt, amount, desc, t.get('payee_name', ''), tag, conta, t['id'], fatura,
+                       regen=False)  # one regen for the whole batch, below
             imported += 1
 
         elif act == 'link':
@@ -461,6 +467,8 @@ def sync_confirm():
         else:
             ignored += 1
 
+    if imported:
+        regen_dashboard()
     if imported or linked:
         _balance_cache['ts'] = 0.0  # force refresh — YNAB state just changed
 
