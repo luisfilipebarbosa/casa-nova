@@ -211,7 +211,10 @@ def append_row(dt, amount, desc, payee, tag, conta, ynab_id=None, fatura=None):
     if fatura:
         ws.cell(r, 10, fatura)
     wb.save(NOVA_FILE)
-    subprocess.Popen([sys.executable, DASHBOARD_PY])
+    # Synchronous on purpose: a detached Popen here let dashboard.py re-save the
+    # workbook while the next append_row was already writing it — two writers on
+    # the same xlsx corrupted the zip (2026-08-10 incident).
+    subprocess.run([sys.executable, DASHBOARD_PY], timeout=60)
 
 # ── Analytics computation ─────────────────────────────────────────────────────
 def build_analytics():
