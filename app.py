@@ -23,8 +23,6 @@ BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 NOVA_FILE    = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
 DASHBOARD_PY = os.path.join(BASE_DIR, 'dashboard.py')
 STATUS_FILE  = os.path.join(BASE_DIR, 'category_status.json')
-TOKEN_FILE   = os.path.expanduser('~/Documents/Personal/Finance/ynab token.rtf')
-ANTHROPIC_KEY_FILE = os.path.expanduser('~/Documents/Personal/Finance/anthropic api key.txt')
 
 def load_category_status():
     if not os.path.exists(STATUS_FILE): return {}
@@ -36,20 +34,14 @@ def save_category_status(s):
     with open(STATUS_FILE, 'w') as f: json.dump(s, f, indent=2, ensure_ascii=False)
 
 def load_ynab_token():
-    """Read the YNAB personal access token from the RTF file at TOKEN_FILE.
-    Tokens are 43 chars of URL-safe base64. We grep the RTF for the first match."""
-    try:
-        with open(TOKEN_FILE) as f:
-            content = f.read()
-    except FileNotFoundError:
+    """Read the YNAB personal access token from the YNAB_TOKEN environment variable."""
+    token = os.environ.get('YNAB_TOKEN', '').strip()
+    if not token:
         raise RuntimeError(
-            f'YNAB token file not found at {TOKEN_FILE}. '
-            'Create it with your token (see README).'
+            'YNAB_TOKEN environment variable is not set. Set it as a user '
+            'environment variable and restart the app (see README).'
         )
-    m = re.search(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])', content)
-    if not m:
-        raise RuntimeError(f'Could not find a valid YNAB token in {TOKEN_FILE}')
-    return m.group(0)
+    return token
 
 TOKEN        = load_ynab_token()
 BUDGET_ID    = '62da99f2-0125-45cd-8906-6a5ebe3416ad'
@@ -405,7 +397,7 @@ def add():
 @app.route('/open-excel', methods=['POST'])
 def open_excel():
     try:
-        subprocess.Popen(['open', NOVA_FILE])
+        os.startfile(NOVA_FILE)
         return ('', 204)
     except Exception as e:
         return (str(e), 500)
@@ -544,27 +536,16 @@ comparares categorias, listas curtas. Nada de headers pomposos em respostas curt
 _anthropic_client = None
 
 def get_anthropic_client():
-    """Lazy-init the Anthropic client. Key from env or key file."""
+    """Lazy-init the Anthropic client. Key from the ANTHROPIC_API_KEY env var."""
     global _anthropic_client
     if _anthropic_client is not None:
         return _anthropic_client
     import anthropic
     key = os.environ.get('ANTHROPIC_API_KEY')
     if not key:
-        # Accept the plain .txt or the .rtf TextEdit tends to produce
-        for path in (ANTHROPIC_KEY_FILE, ANTHROPIC_KEY_FILE + '.rtf',
-                     ANTHROPIC_KEY_FILE.replace('.txt', '.rtf')):
-            if os.path.exists(path):
-                with open(path, errors='ignore') as f:
-                    m = re.search(r'sk-ant-[A-Za-z0-9_-]{20,}', f.read())
-                if m:
-                    key = m.group(0)
-                    break
-    if not key:
         raise RuntimeError(
-            f'Chave API Anthropic não encontrada. Cria o ficheiro '
-            f'"{ANTHROPIC_KEY_FILE}" com a tua chave (sk-ant-...), '
-            f'ou define ANTHROPIC_API_KEY.'
+            'Chave API Anthropic não encontrada. Define a variável de '
+            'ambiente ANTHROPIC_API_KEY.'
         )
     _anthropic_client = anthropic.Anthropic(api_key=key)
     return _anthropic_client
@@ -727,5 +708,4 @@ if __name__ == '__main__':
         pass
 
     print()
-    subprocess.Popen(['open', 'http://localhost:5001'])
     app.run(host='0.0.0.0', port=5001, debug=False)
