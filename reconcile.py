@@ -16,13 +16,11 @@ from collections import defaultdict
 from itertools import combinations
 
 # --- Config ---
-# Token is read from an RTF file outside the repo — never commit secrets.
-TOKEN_FILE  = os.path.expanduser('~/Documents/Finance/ynab token.rtf')
+# Token is read from the YNAB_TOKEN environment variable — never commit secrets.
 def _load_token():
-    with open(TOKEN_FILE) as f:
-        m = re.search(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])', f.read())
-    if not m: raise RuntimeError(f'No YNAB token found in {TOKEN_FILE}')
-    return m.group(0)
+    token = os.environ.get('YNAB_TOKEN', '').strip()
+    if not token: raise RuntimeError('YNAB_TOKEN environment variable is not set')
+    return token
 YNAB_TOKEN  = _load_token()
 BUDGET_ID   = "62da99f2-0125-45cd-8906-6a5ebe3416ad"
 CAT_ID      = "6bc4c34f-60e3-462b-9f75-a9baf10d35b0"  # Gastos Casa Nova
