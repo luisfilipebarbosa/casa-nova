@@ -15,6 +15,14 @@ from collections import defaultdict
 
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 NOVA_FILE = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
+import json
+FORECAST_FILE = os.path.join(os.path.dirname(BASE_DIR), 'forecast.json')
+def load_forecast():
+    try:
+        with open(FORECAST_FILE, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
 G         = "'💸 Gastos'"      # sheet reference for formulas
 MAX_ROW   = 500                # formula range ceiling
 
@@ -54,13 +62,27 @@ BUDGET = {
     'Outros':                        10_000,
 }
 
-def budget_civa(tag):
-    """Budget with IVA for a given tag."""
+def _budget_civa_orig(tag):
     b = BUDGET.get(tag, 0)
     return b if tag in IVA_EXEMPT else round(b * (1 + IVA_RATE), 2)
 
+def budget_civa(tag):
+    """Budget c/IVA da categoria: valor revisto no forecast.json, se existir; senão o original."""
+    ov = ((load_forecast() or {}).get('categorias') or {}).get(tag)
+    if ov and ov.get('budget') is not None:
+        return float(ov['budget'])
+    return _budget_civa_orig(tag)
+
+def budget_siva(tag):
+    """s/IVA: original, ou (se revisto) c/IVA ÷ taxa — aproximado."""
+    ov = ((load_forecast() or {}).get('categorias') or {}).get(tag)
+    if ov and ov.get('budget') is not None and tag not in IVA_EXEMPT:
+        return round(float(ov['budget']) / (1 + IVA_RATE))
+    return BUDGET.get(tag, 0)
+
+# Totais = orçamento original (referência fixa); as linhas por categoria podem estar revistas.
 TOTAL_BUDGET_SIVA = sum(BUDGET.values())
-TOTAL_BUDGET      = sum(budget_civa(t) for t in BUDGET)  # c/IVA — used for planning
+TOTAL_BUDGET      = sum(_budget_civa_orig(t) for t in BUDGET)  # c/IVA — used for planning
 
 PHASES = [
     ('Terreno & Licenças',     ['Terreno', 'Taxas & Multas', 'Arquitectura', 'Empréstimo']),
@@ -235,14 +257,14 @@ def build_dashboard(wb, p):
     # Projected final and overrun — formulas filled in after budget table (rows unknown here)
     kpi(ws, r, 1, 'Custo projectado conclusão', '', EUR, ORANGE_F)
     projected_row = r
-    kpi(ws, r, 7, 'Empréstimo MG — 2ª tranche (prevista)',
+    kpi(ws, r, 7, 'Empréstimo MG — 2ª tranche (levantada)',
         f'={p["loan2"]}')
     r += 1
     kpi(ws, r, 1, 'Derrapagem (categorias acima do orçamento)', '', EUR, RED_F)
     overrun_kpi_row = r
     # Défice = remaining to spend (projected - spent) minus available cash today
     # Projected total includes already-spent, so subtract it to get what's still to pay
-    kpi(ws, r, 7, 'Défice antes de 2ª tranche (falta pagar vs. liquidez actual)',
+    kpi(ws, r, 7, 'Défice vs. liquidez actual (antes do empréstimo por levantar)',
         f'=MAX(0,B{projected_row}-SUM({G}!B:B)-{p["bank"]}-{p["cash"]})',
         vbg=RED_F)
     r += 2
@@ -266,7 +288,7 @@ def build_dashboard(wb, p):
                       key=lambda x: BUDGET.get(x, 0), reverse=True)
 
     for tag in all_tags:
-        bgt_siva  = BUDGET.get(tag, 0)
+        bgt_siva  = budget_siva(tag)
         bgt_civa  = budget_civa(tag)
         actual_cell     = f'B{r}'
         budget_civa_cell = f'E{r}'   # column 5 = E
@@ -315,6 +337,10 @@ def build_dashboard(wb, p):
         f'*E{budget_table_start}:E{budget_table_end})'
     )
     ws.cell(projected_row, 2).number_format = EUR
+    if load_forecast():
+        # Fonte única: o custo projectado vem do forecast (folha 📈 Forecast), igual ao painel.
+        ws.cell(projected_row, 2).value = "='📈 Forecast'!B9"
+        ws.cell(projected_row, 1).value = 'Custo projectado conclusão (mín.; ver 📈 Forecast)'
     ws.cell(overrun_kpi_row, 2).value = (
         f'=SUMPRODUCT('
         f'(B{budget_table_start}:B{budget_table_end}>E{budget_table_start}:E{budget_table_end})'
@@ -426,7 +452,7 @@ def build_dashboard(wb, p):
     kpi(ws, r, 7, 'Pago via Banco  ⚠ incompleto até Conta estar 100%',
         f'=SUMIF({G}!G:G,"Banco",{G}!B:B)')
     r += 1
-    kpi(ws, r, 1, 'Empréstimo 2ª tranche (prevista)',
+    kpi(ws, r, 1, 'Empréstimo 2ª tranche (levantada)',
         f'={p["loan2"]}')
     kpi(ws, r, 7, 'Pago via Cash  ⚠ incompleto até Conta estar 100%',
         f'=SUMIF({G}!G:G,"Cash",{G}!B:B)')
@@ -502,6 +528,58 @@ def build_dashboard(wb, p):
 
     return ws
 
+# ── Forecast sheet ────────────────────────────────────────────────────────────
+
+def build_forecast(wb):
+    fc = load_forecast()
+    name = '📈 Forecast'
+    if name in wb.sheetnames:
+        del wb[name]
+    if not fc:
+        return None
+    ws = wb.create_sheet(name, 1)
+    for c, w in {1: 44, 2: 16, 3: 3, 4: 60}.items():
+        ws.column_dimensions[get_column_letter(c)].width = w
+    P = "'⚙️ Parâmetros'"
+    header(ws, 1, 1, 4, f'📈 Forecast — actualizado {fc.get("updated","")} (fonte: forecast.json, igual ao painel)', BLUE_DARK, WHITE, 11)
+    itens = fc.get('itens', [])
+    groups = [('em curso', 'Em curso'), ('sem orçamento final', 'Sem orçamento final'),
+              ('não iniciado', 'Não iniciado'), ('extra', 'Extras possíveis (fora da base)')]
+    # table first (rows known), KPIs on top reference it
+    r0 = 12
+    r = r0
+    base_cells, extra_cells = [], []
+    ws.cell(r - 1, 1, 'Falta pagar (c/IVA)').font = bf(True, 10)
+    for key, label in groups:
+        lst = [i for i in itens if i.get('g') == key]
+        if not lst:
+            continue
+        header(ws, r, 1, 4, label, BLUE_MID, WHITE, 10, 16)
+        r += 1
+        for i in lst:
+            ws.cell(r, 1, i['n'])
+            c = ws.cell(r, 2, i['v']); c.number_format = EUR
+            ws.cell(r, 4, i.get('nota', '')).font = Font(italic=True, size=9, color='808080')
+            (extra_cells if key == 'extra' else base_cells).append(f'B{r}')
+            r += 1
+    fora = fc.get('fora') or []
+    if fora:
+        r += 1
+        ws.cell(r, 1, 'Fora do forecast (sem orçamento): ' + ', '.join(fora)).font = Font(italic=True, size=9, color='808080')
+    base_f  = '=' + '+'.join(base_cells)  if base_cells  else '=0'
+    extra_f = '=' + '+'.join(extra_cells) if extra_cells else '=0'
+    kpi(ws, 3, 1, 'Gasto até hoje',                        f"=SUM({G}!B:B)")
+    kpi(ws, 4, 1, 'Liquidez real (caixa + empréstimo por levantar)', f"={P}!B13+{P}!B14")
+    kpi(ws, 5, 1, 'Falta pagar — base',                    base_f)
+    kpi(ws, 6, 1, 'Falta pagar — com extras possíveis',    '=B5' + (('+' + '+'.join(extra_cells)) if extra_cells else ''))
+    kpi(ws, 7, 1, 'Folga mínima (com extras)',             '=B4-B6')
+    kpi(ws, 8, 1, 'Folga máxima (só base)',                '=B4-B5')
+    kpi(ws, 9, 1, 'Custo final estimado — mínimo',         '=B3+B5')
+    kpi(ws, 10, 1, 'Custo final estimado — máximo',        '=B3+B6')
+    ws.cell(4, 4, f'Caixa = {P}!B13 (YNAB, categoria Casa Nova) · empréstimo = B11 − B5 − B6').font = Font(italic=True, size=9, color='808080')
+    ws.freeze_panes = 'A3'
+    return ws
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -510,6 +588,8 @@ if __name__ == '__main__':
     _, p = build_params(wb)
     print('Building Dashboard sheet...')
     build_dashboard(wb, p)
+    print('Building Forecast sheet...')
+    build_forecast(wb)
     wb.save(NOVA_FILE)
     print(f'✓ Saved to {NOVA_FILE}')
     print()

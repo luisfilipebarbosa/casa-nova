@@ -8,6 +8,30 @@
     <div class="kpi-value eur">€{{ "{:,.0f}".format(total) }}</div>
     <div class="kpi-sub">{{ "{:.0%}".format(pct) }} do orçamento c/IVA</div>
   </div>
+{% if forecast %}
+  <div class="kpi green">
+    <div class="kpi-label">Liquidez real</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(forecast.liquidez) }}</div>
+    <div class="kpi-sub">
+      €{{ "{:,.0f}".format(available) }} em caixa + €{{ "{:,.0f}".format(forecast.linha) }} do empréstimo
+      {% if balance_source == 'live' %}
+        · <span style="color:var(--green)" title="Categoria Casa Nova no YNAB">● live</span>
+      {% else %}
+        · <span style="color:var(--orange)" title="YNAB inacessível — a usar valores da folha Parâmetros (proxy)">⚠ fallback</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="kpi orange">
+    <div class="kpi-label">Falta pagar</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(forecast.base/1000) }}–{{ "{:,.0f}".format(forecast.max/1000) }}k</div>
+    <div class="kpi-sub">da base até com extras possíveis</div>
+  </div>
+  <div class="kpi {{ 'orange' if forecast.folga_min < 15000 else 'green' }}">
+    <div class="kpi-label">Folga</div>
+    <div class="kpi-value eur">€{{ "{:,.0f}".format(forecast.folga_min/1000) }}–{{ "{:,.0f}".format(forecast.folga_max/1000) }}k</div>
+    <div class="kpi-sub">liquidez menos falta pagar · forecast {{ forecast.updated }}</div>
+  </div>
+{% else %}
   <div class="kpi {{ 'orange' if projected > budget_civa else 'green' }}">
     <div class="kpi-label">Custo projectado</div>
     <div class="kpi-value eur">€{{ "{:,.0f}".format(projected) }}</div>
@@ -30,6 +54,7 @@
     <div class="kpi-value eur">€{{ "{:,.0f}".format(remaining_to_pay) }}</div>
     <div class="kpi-sub">orçamento c/IVA − gasto</div>
   </div>
+{% endif %}
 </div>
 
 <!-- Charts -->

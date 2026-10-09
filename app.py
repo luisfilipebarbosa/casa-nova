@@ -23,6 +23,23 @@ BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 NOVA_FILE    = os.path.join(BASE_DIR, 'Custos Casa Nova - Nova2.xlsx')
 DASHBOARD_PY = os.path.join(BASE_DIR, 'dashboard.py')
 STATUS_FILE  = os.path.join(BASE_DIR, 'category_status.json')
+# Forecast (itens por pagar, empréstimo por levantar, orçamentos revistos por categoria).
+# Fonte única partilhada com o painel (artifact) e o projecto Casa Nova no Claude.
+FORECAST_FILE = os.path.join(os.path.dirname(BASE_DIR), 'forecast.json')
+
+def load_forecast():
+    """Devolve o forecast com totais calculados, ou None se o ficheiro não existir/estiver inválido."""
+    try:
+        with open(FORECAST_FILE, encoding='utf-8') as f:
+            fc = json.load(f)
+        itens = fc.get('itens', [])
+        fc['base']  = sum(float(i.get('v', 0)) for i in itens if i.get('g') != 'extra')
+        fc['extra'] = sum(float(i.get('v', 0)) for i in itens if i.get('g') == 'extra')
+        fc['max']   = fc['base'] + fc['extra']
+        fc['linha'] = float(fc.get('linha_disponivel', 0))
+        return fc
+    except Exception:
+        return None
 
 def load_category_status():
     if not os.path.exists(STATUS_FILE): return {}
@@ -70,11 +87,20 @@ BUDGET = {
 IVA_RATE   = 0.23
 IVA_EXEMPT = {'Terreno'}
 
-def budget_civa(tag):
+def _budget_civa_orig(tag):
     b = BUDGET.get(tag, 0)
     return b if tag in IVA_EXEMPT else round(b * (1 + IVA_RATE), 2)
 
-TOTAL_CIVA = sum(budget_civa(t) for t in BUDGET)
+def budget_civa(tag):
+    """Orçamento c/IVA da categoria: o valor revisto no forecast, se existir; senão o original."""
+    fc = load_forecast()
+    ov = ((fc or {}).get('categorias') or {}).get(tag)
+    if ov and ov.get('budget') is not None:
+        return float(ov['budget'])
+    return _budget_civa_orig(tag)
+
+# Orçamento total = o original (referência fixa); os orçamentos por categoria podem estar revistos.
+TOTAL_CIVA = sum(_budget_civa_orig(t) for t in BUDGET)
 TOTAL_SIVA = sum(BUDGET.values())
 
 # ── YNAB helpers ──────────────────────────────────────────────────────────────
@@ -231,12 +257,13 @@ def build_analytics():
 
     # Budget vs actual table
     cat_status = load_category_status()  # {tag: 'closed'}; default open
+    fc = load_forecast()
     table = []
     for tag in sorted(BUDGET.keys(), key=lambda x: -BUDGET[x]):
         actual = tag_totals.get(tag, 0)
         bc, bs = budget_civa(tag), BUDGET[tag]
         pct = actual / bc if bc else 0
-        user_closed = cat_status.get(tag) == 'closed'
+        user_closed = cat_status.get(tag) == 'closed' or (((fc or {}).get('categorias') or {}).get(tag, {}).get('status') == 'Fechada')
         if   actual == 0:        status, status_cls = 'Por iniciar', 'muted'
         elif user_closed:        status, status_cls = 'Fechada', 'green'
         elif actual > bc:        status, status_cls = 'Derrapagem', 'red'
@@ -321,6 +348,20 @@ def build_analytics():
         for row in table if not row['closed']
     )
 
+    # Forecast: quando existe, substitui "projectado" e "falta pagar" pelos mesmos números do painel.
+    forecast = None
+    if fc:
+        liq = available + fc['linha']
+        exempt = sum(r['actual'] for r in table if r['tag'] in IVA_EXEMPT)
+        remaining_to_pay = fc['base']
+        projected = total + fc['base']
+        projected_siva = (projected - exempt) / (1 + IVA_RATE) + exempt  # aproximado
+        forecast = dict(
+            base=fc['base'], extra=fc['extra'], max=fc['max'], linha=fc['linha'],
+            liquidez=liq, folga_min=liq - fc['max'], folga_max=liq - fc['base'],
+            custo_min=total + fc['base'], custo_max=total + fc['max'],
+            updated=fc.get('updated'))
+
     # Recent entries (last 15)
     recent = sorted([r for r in rows if r['date']], key=lambda x: x['date'], reverse=True)[:15]
 
@@ -329,7 +370,7 @@ def build_analytics():
         pct=total / TOTAL_CIVA if TOTAL_CIVA else 0,
         available=available, bank=bank, cash=cash, balance_source=balance_source,
         projected=projected, projected_siva=projected_siva,
-        remaining_to_pay=remaining_to_pay,
+        remaining_to_pay=remaining_to_pay, forecast=forecast,
         da=params['da'],
         table=table, categories=categories, spent_by_cat=spent_by_cat, recent=recent,
         monthly_labels=json.dumps(monthly_labels),
@@ -572,6 +613,15 @@ def build_assistant_snapshot():
                  f' (€{a["projected_siva"]:,.2f} s/IVA)')
     lines.append(f'- Falta pagar (orçamento não consumido, excl. fechadas):'
                  f' €{a["remaining_to_pay"]:,.2f}')
+    f = a.get('forecast')
+    if f:
+        lines.append(f'- FORECAST (actualizado {f["updated"]}; mesmos números do painel):'
+                     f' falta pagar €{f["base"]:,.0f} (base) a €{f["max"]:,.0f} (com extras possíveis);'
+                     f' liquidez real €{f["liquidez"]:,.0f} (caixa + €{f["linha"]:,.0f} do empréstimo por levantar);'
+                     f' folga €{f["folga_min"]:,.0f} a €{f["folga_max"]:,.0f};'
+                     f' custo final estimado €{f["custo_min"]:,.0f} a €{f["custo_max"]:,.0f}.')
+        lines.append('- Os orçamentos por categoria abaixo são os revistos no forecast; o orçamento total c/IVA'
+                     ' (original) mantém-se como referência.')
     lines.append('')
     lines.append('## Financiamento')
     lines.append(f'- Empréstimo aprovado (linha de crédito): €310,000.00')
